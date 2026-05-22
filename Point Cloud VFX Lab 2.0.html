@@ -1,0 +1,1894 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>点云动效实验室 - 0.1</title>
+    <style>
+        :root {
+            --theme-cyan: #00ffaa; /* 统一使用极光青色 */
+            --panel-bg: rgba(10, 10, 12, 0.6);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-main: #eee;
+            --text-sub: #888;
+        }
+
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background-color: #030303; 
+            color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        canvas { 
+            display: block; 
+            outline: none; 
+        }
+        
+        #toggle-ui-btn {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 20;
+            background: rgba(20, 20, 20, 0.5);
+            backdrop-filter: blur(8px);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.3s ease;
+        }
+        #toggle-ui-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+
+        #ui-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: var(--panel-bg);
+            padding: 24px;
+            border-radius: 16px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 0 0 1px rgba(255,255,255,0.05);
+            z-index: 10;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            width: 280px;
+            transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            max-height: 85vh;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+        #ui-panel.hidden {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateX(-30px) scale(0.98);
+        }
+
+        #ui-panel::-webkit-scrollbar { width: 4px; }
+        #ui-panel::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+
+        .section-title {
+            font-size: 11px;
+            color: var(--text-sub);
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin: 20px 0 12px 0;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+        }
+        .section-title:first-child { margin-top: 0; }
+
+        .control-group { margin-bottom: 16px; }
+        .control-group:last-child { margin-bottom: 0; }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 12px;
+            color: var(--text-main);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        input[type="file"] { font-size: 11px; color: var(--text-sub); width: 100%; }
+        input[type="file"]::file-selector-button {
+            background: rgba(255,255,255,0.05); border: 1px solid var(--border-color);
+            color: var(--text-main); padding: 6px 12px; border-radius: 4px; cursor: pointer;
+            margin-right: 10px; transition: all 0.2s; font-size: 11px;
+        }
+        input[type="file"]::file-selector-button:hover { background: rgba(255,255,255,0.1); }
+
+        select {
+            background: rgba(0,0,0,0.3); color: var(--text-main); border: 1px solid var(--border-color);
+            padding: 4px 8px; border-radius: 4px; outline: none; font-size: 12px; width: 100%; margin-top: 4px;
+        }
+
+        .switch { position: relative; display: inline-block; width: 34px; height: 18px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider-toggle {
+            position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255,255,255,0.1); transition: .3s; border-radius: 18px; border: 1px solid var(--border-color);
+        }
+        .slider-toggle:before {
+            position: absolute; content: ""; height: 12px; width: 12px; left: 2px; bottom: 2px;
+            background-color: #888; transition: .3s; border-radius: 50%;
+        }
+
+        /* 统一输入滑块条和滑块点基础样式 */
+        input[type="range"] {
+            -webkit-appearance: none; width: 100%; height: 2px; background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px; outline: none; margin-top: 10px; margin-bottom: 4px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%;
+            background: #fff; cursor: pointer; transition: transform 0.1s;
+            box-shadow: 0 0 5px rgba(255,255,255,0.5) !important;
+        }
+
+        /* ======== 修改核心：统一黑白UI与极光青色高亮 ======== */
+        .fx-label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; margin-bottom: 4px; }
+        
+        /* 默认特效文字为黑白色系（灰色） */
+        .fx-label span { color: #aaa !important; transition: all 0.3s ease; }
+        
+        /* 当对应的开关处于 checked 状态时，父级内文字点亮极光青色 */
+        .fx-label:has(input:checked) span { 
+            color: var(--theme-cyan) !important; 
+            text-shadow: 0 0 8px rgba(0, 255, 255, 0.7); 
+        }
+
+        /* 当开关打开时，拨片背景色变为极光青色 */
+        input:checked + .slider-toggle { 
+            background-color: rgba(0, 255, 255, 0.15) !important; 
+            border-color: rgba(0, 255, 255, 0.4) !important; 
+        }
+        input:checked + .slider-toggle:before { 
+            transform: translateX(16px); 
+            background-color: var(--theme-cyan) !important; 
+            box-shadow: 0 0 8px var(--theme-cyan) !important; 
+        }
+
+        /* Hover滑块点时显示青色光晕 */
+        input[type="range"]::-webkit-slider-thumb:hover { 
+            transform: scale(1.3); 
+            box-shadow: 0 0 10px var(--theme-cyan) !important; 
+        }
+        /* =================================================== */
+        
+        .val-display { font-family: monospace; color: var(--text-sub); font-size: 10px; }
+
+        /* 预览小窗样式 */
+        #preview-container {
+            width: 100%;
+            height: 160px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            position: relative;
+            margin-bottom: 24px;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        #preview-container canvas {
+            display: block;
+            width: 100% !important;
+            height: 100% !important;
+            outline: none;
+        }
+        #preview-toggle-btn {
+            position: absolute;
+            bottom: 8px;
+            right: 8px;
+            background: rgba(20, 20, 20, 0.7);
+            color: #ffffff; 
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 10px;
+            cursor: pointer;
+            z-index: 10;
+            backdrop-filter: blur(4px);
+            font-family: monospace;
+            transition: all 0.2s;
+        }
+        #preview-toggle-btn:hover {
+            background: rgba(255, 255, 255, 0.1);
+            color: #fff;
+        }
+        #preview-placeholder {
+            position: absolute;
+            font-size: 11px;
+            color: var(--text-sub);
+            pointer-events: none;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <button id="toggle-ui-btn">Hide UI</button>
+
+    <div id="ui-panel">
+        
+        <div style="margin-bottom: 22px;">
+            <div style="font-size: 19px; font-weight: bold; color: #fff; letter-spacing: 0.5px; text-transform: uppercase;">Point Cloud VFX Lab</div>
+            <div style="font-size: 11px; color: var(--theme-cyan); margin-top: 5px; letter-spacing: 2px;">点云动效实验室</div>
+        </div>
+
+        <div class="control-group">
+            <div id="preview-container">
+                <div id="preview-placeholder">AWAITING DATA...</div>
+                <button id="preview-toggle-btn">Show MESH</button>
+            </div>
+        </div>
+
+        <div class="section-title">Data Input / 数据导入</div>
+        
+        <div class="control-group">
+            <label>OBJ Model</label>
+            <input type="file" id="obj-input" accept=".obj">
+        </div>
+        <div class="control-group">
+            <label>Color Texture</label>
+            <input type="file" id="tex-input" accept="image/png, image/jpeg">
+        </div>
+        
+        <div class="control-group">
+            <label>Up-Axis Alignment</label>
+            <select id="up-axis">
+                <option value="Z">Z Axis Up (Blender, etc.)</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label>Model Rot X <span class="val-display" id="val-rot-x">0°</span></label>
+            <input type="range" id="rot-x-slider" min="-180" max="180" step="1" value="0">
+        </div>
+        <div class="control-group">
+            <label>Model Rot Y <span class="val-display" id="val-rot-y">0°</span></label>
+            <input type="range" id="rot-y-slider" min="-180" max="180" step="1" value="0">
+        </div>
+        <div class="control-group">
+            <label>Model Rot Z <span class="val-display" id="val-rot-z">0°</span></label>
+            <input type="range" id="rot-z-slider" min="-180" max="180" step="1" value="0">
+        </div>
+
+        <div class="section-title">Base Controls / 基础控制</div>
+
+        <div class="control-group">
+            <label>Point Size <span class="val-display" id="val-size">0.05</span></label>
+            <input type="range" id="size-slider" min="0.01" max="0.2" step="0.01" value="0.05">
+        </div>
+
+        <div class="control-group">
+            <label>Rotation Speed <span class="val-display" id="val-speed">0.005</span></label>
+            <input type="range" id="speed-slider" min="0.0" max="0.05" step="0.001" value="0.005">
+        </div>
+        
+        <div class="control-group">
+            <label>Point Density <span class="val-display" id="val-density">1.00</span></label>
+            <input type="range" id="density-slider" min="0.0" max="1.0" step="0.01" value="1.0">
+        </div>
+        
+        <div class="control-group">
+            <label>Brightness <span class="val-display" id="val-bright">1.0</span></label>
+            <input type="range" id="brightness-slider" min="0.1" max="3.0" step="0.1" value="1.0">
+        </div>
+
+        <div class="section-title">Kinetics / 动态视觉</div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-cyan">Particle Flow (飘散)</span>
+                <label class="switch">
+                    <input type="checkbox" id="flow-enable" class="check-flow">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="flow-slider" class="slider-flow" min="0.0" max="3.0" step="0.01" value="0.0">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-magenta">Local Twist (蛇形蠕动)</span>
+                <label class="switch">
+                    <input type="checkbox" id="twist-enable" class="check-twist">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="twist-slider" class="slider-twist" min="0.0" max="2.0" step="0.01" value="0.0">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-wave">Ocean Wave (海浪波动)</span>
+                <label class="switch">
+                    <input type="checkbox" id="wave-enable" class="check-wave">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="wave-slider" class="slider-wave" min="0.0" max="3.0" step="0.01" value="0.0">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-explode">Explode & Assemble (发散聚合)</span>
+                <label class="switch">
+                    <input type="checkbox" id="explode-enable" class="check-explode">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="explode-slider" class="slider-explode" min="0.0" max="3.0" step="0.01" value="0.0">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-shatter">Shatter & Link (破碎重组)</span>
+                <label class="switch">
+                    <input type="checkbox" id="shatter-enable" class="check-shatter">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="shatter-slider" class="slider-shatter" min="0.1" max="3.0" step="0.01" value="0.1">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-track">Dynamic Tracking (动态侦测)</span>
+                <label class="switch">
+                    <input type="checkbox" id="track-enable" class="check-track">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="track-slider" class="slider-track" min="1" max="10" step="1" value="1">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-rain">Time Rain (时间雨)</span>
+                <label class="switch">
+                    <input type="checkbox" id="rain-enable" class="check-rain">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="rain-slider" class="slider-rain" min="0.1" max="3.0" step="0.01" value="0.1">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-audio">Audio Bounce (音乐旋动)</span>
+                <label class="switch">
+                    <input type="checkbox" id="audio-enable" class="check-audio">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <div class="fx-label">
+                <span class="color-audio">Audio Rhythm (音乐律动)</span>
+                <label class="switch">
+                    <input type="checkbox" id="audio-rhythm-enable" class="check-audio">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="audio-slider" class="slider-audio" min="0.0" max="2.0" step="0.01" value="0.0">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label">
+                <span class="color-sand">Sand Wind (星星流沙)</span>
+                <label class="switch">
+                    <input type="checkbox" id="sand-enable" class="check-sand">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="sand-slider" class="slider-sand" min="0.0" max="1.0" step="0.01" value="0.0">
+        </div>
+
+        <div class="control-group">
+            <div class="fx-label" style="margin-bottom: 12px;">
+                <span class="color-print">Plane Scan (平面扫描打印)</span>
+                <label class="switch">
+                    <input type="checkbox" id="print-enable" class="check-print">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <div class="fx-label">
+                <span class="color-print">Laser Ray (高频扫描射线)</span>
+                <label class="switch">
+                    <input type="checkbox" id="laser-enable" class="check-print">
+                    <span class="slider-toggle"></span>
+                </label>
+            </div>
+            <input type="range" id="print-slider" class="slider-print" min="0.1" max="3.0" step="0.01" value="0.1" style="margin-top: 12px;">
+        </div>
+
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+
+        const uiPanel = document.getElementById('ui-panel');
+        const toggleBtn = document.getElementById('toggle-ui-btn');
+        toggleBtn.addEventListener('click', () => {
+            uiPanel.classList.toggle('hidden');
+            if (uiPanel.classList.contains('hidden')) {
+                toggleBtn.innerText = 'Show UI';
+            } else {
+                toggleBtn.innerText = 'Hide UI';
+            }
+        });
+
+        function updateValDisplay(id, val) {
+            document.getElementById(id).innerText = parseFloat(val).toFixed(2);
+        }
+
+        let currentTurntable = null; 
+        let currentModelInner = null; 
+        let currentTexture = null;
+        
+        let currentSpeed = 0.005; 
+        let currentDensity = 1.0;
+        let currentBrightness = 1.0;
+        let currentPointSize = 0.05;
+        
+        // 对应将所有初始状态重置为最小值和关闭状态
+        let currentFlowEnabled = 0.0;
+        let currentFlowIntensity = 0.0;
+        let currentTwistEnabled = 0.0;
+        let currentTwistIntensity = 0.0;
+        
+        let currentWaveEnabled = 0.0;     
+        let currentWaveIntensity = 0.0;   
+
+        let currentExplodeEnabled = 0.0;
+        let currentExplodeIntensity = 0.0;
+
+        let currentShatterEnabled = 0.0;   
+        let currentShatterSpeed = 0.1;     
+
+        let currentTrackEnabled = 0.0;     
+        let currentTrackCount = 1.0;       
+        let trackers = [];                 
+        let targetPool = [];               
+
+        let currentTimeRainEnabled = 0.0;    
+        let currentTimeRainIntensity = 0.1;  
+
+        let currentAudioEnabled = 0.0;
+        let currentAudioRhythmEnabled = 0.0; 
+        let currentAudioIntensity = 0.0;
+        let currentSandEnabled = 0.0;
+        let currentSandIntensity = 0.0;
+        
+        let currentPrintEnabled = 0.0;
+        let currentLaserMode = 0.0;
+        let currentPrintSpeed = 0.1;
+        
+        let printProgress = 0.0;     
+        let printFrameGroup = null;  
+        let scanLaser = null;        
+
+        let modelRotX = 0.0;
+        let modelRotY = 0.0;
+        let modelRotZ = 0.0;
+
+        let elapsedTime = 0.0;       
+        let lastTime = 0.0;
+        let lastHUDUpdate = 0.0;     
+
+        let audioContext, analyser, dataArray;
+        let audioInitialized = false;
+        let currentAudioLevel = 0.0;
+
+        let mainDisplayMode = 'points'; 
+
+        const previewContainer = document.getElementById('preview-container');
+        const previewToggleBtn = document.getElementById('preview-toggle-btn');
+        const previewPlaceholder = document.getElementById('preview-placeholder');
+
+        const previewScene = new THREE.Scene();
+        const previewWidth = 230; 
+        const previewHeight = 160;
+        const previewCamera = new THREE.PerspectiveCamera(45, previewWidth / previewHeight, 0.1, 100);
+        previewCamera.position.set(0, 1.5, 5);
+
+        const previewRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        previewRenderer.setPixelRatio(window.devicePixelRatio);
+        previewRenderer.setSize(previewWidth, previewHeight);
+        previewContainer.appendChild(previewRenderer.domElement);
+
+        const previewControls = new OrbitControls(previewCamera, previewRenderer.domElement);
+        previewControls.enableDamping = true;
+        previewControls.dampingFactor = 0.05;
+        previewControls.autoRotate = true; 
+        previewControls.autoRotateSpeed = 1.5;
+
+        const previewAmbientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        previewScene.add(previewAmbientLight);
+        const previewDirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        previewDirLight.position.set(5, 10, 5);
+        previewScene.add(previewDirLight);
+        const previewBackLight = new THREE.DirectionalLight(0x00ffff, 0.4);
+        previewBackLight.position.set(-5, -5, -5);
+        previewScene.add(previewBackLight);
+
+        let previewGroup = new THREE.Group();
+        previewScene.add(previewGroup);
+        let previewMeshGroup = new THREE.Group();
+        previewGroup.add(previewMeshGroup);
+
+        const trackingLayer = document.createElement('div');
+        trackingLayer.id = 'tracking-layer';
+        trackingLayer.style.position = 'absolute';
+        trackingLayer.style.top = '0';
+        trackingLayer.style.left = '0';
+        trackingLayer.style.width = '100%';
+        trackingLayer.style.height = '100%';
+        trackingLayer.style.pointerEvents = 'none'; 
+        trackingLayer.style.zIndex = '15'; 
+        document.body.appendChild(trackingLayer);
+
+        const lineCanvas = document.createElement('canvas');
+        lineCanvas.id = 'tracking-lines-canvas';
+        lineCanvas.style.position = 'absolute';
+        lineCanvas.style.top = '0';
+        lineCanvas.style.left = '0';
+        lineCanvas.style.width = '100%';
+        lineCanvas.style.height = '100%';
+        lineCanvas.width = window.innerWidth;
+        lineCanvas.height = window.innerHeight;
+        trackingLayer.appendChild(lineCanvas);
+
+        window.addEventListener('resize', () => {
+            lineCanvas.width = window.innerWidth;
+            lineCanvas.height = window.innerHeight;
+        });
+
+        for(let i = 0; i < 10; i++) {
+            const box = document.createElement('div');
+            box.style.position = 'absolute';
+            box.style.width = '42px';
+            box.style.height = '68px';
+            box.style.border = '1px solid rgba(0, 255, 0, 0.2)';
+            box.style.backgroundColor = 'rgba(0, 255, 0, 0.04)';
+            box.style.display = 'none'; 
+            box.style.left = '0';
+            box.style.top = '0';
+
+            const cornerStyle = 'position:absolute; width:10px; height:10px; border-color:#00ff00; border-style:solid;';
+            box.innerHTML = `
+                <div style="${cornerStyle} top:-1px; left:-1px; border-width: 2px 0 0 2px;"></div>
+                <div style="${cornerStyle} top:-1px; right:-1px; border-width: 2px 2px 0 0;"></div>
+                <div style="${cornerStyle} bottom:-1px; left:-1px; border-width: 0 0 2px 2px;"></div>
+                <div style="${cornerStyle} bottom:-1px; right:-1px; border-width: 0 2px 2px 0;"></div>
+                <div class="track-label" style="position:absolute; top:-36px; left:-54px; width: 150px; color:#00ff00; font-family:'Courier New', monospace; font-size:11px; white-space:nowrap; text-shadow:0 0 2px #000; text-align:center;">
+                    TGT-${i+1} [0, 0]<br>WAITING...
+                </div>
+                <div style="position:absolute; top:50%; left:50%; width:4px; height:4px; background:#00ff00; transform:translate(-50%,-50%); border-radius:50%; box-shadow: 0 0 4px #0f0;"></div>
+            `;
+            trackingLayer.appendChild(box);
+            
+            trackers.push({
+                el: box,
+                label: box.querySelector('.track-label'),
+                currentPos: new THREE.Vector3(),
+                targetPos: new THREE.Vector3(),
+                timer: Math.random() * 3.0,
+                id: i + 1,
+                speed: 0.6 + Math.random() * 0.6
+            });
+        }
+
+        previewToggleBtn.addEventListener('click', () => {
+            if(mainDisplayMode === 'points') {
+                mainDisplayMode = 'mesh';
+                previewToggleBtn.innerText = 'Show POINTS';
+            } else {
+                mainDisplayMode = 'points';
+                previewToggleBtn.innerText = 'Show MESH';
+            }
+
+            if (currentTurntable) {
+                currentTurntable.traverse((child) => {
+                    if (child.userData.isPointCloud || child.userData.isShatterLines) {
+                        child.visible = (mainDisplayMode === 'points');
+                    }
+                    if (child.userData.isSolidMesh) {
+                        child.visible = (mainDisplayMode === 'mesh');
+                    }
+                });
+            }
+        });
+
+        async function initAudio() {
+            if (audioInitialized) return;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+
+                const source = audioContext.createMediaStreamSource(stream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                audioInitialized = true;
+            } catch (err) {
+                console.error("Audio capture failed:", err);
+                alert("获取系统麦克风/音频失败，请授予权限后再试。");
+                document.getElementById('audio-enable').checked = false;
+                document.getElementById('audio-rhythm-enable').checked = false;
+                currentAudioEnabled = 0.0;
+                currentAudioRhythmEnabled = 0.0;
+                updateMaterial();
+            }
+        }
+
+        document.getElementById('rot-x-slider').addEventListener('input', (e) => {
+            modelRotX = parseFloat(e.target.value);
+            document.getElementById('val-rot-x').innerText = modelRotX + '°';
+            if(currentModelInner) currentModelInner.rotation.x = THREE.MathUtils.degToRad(modelRotX);
+        });
+        document.getElementById('rot-y-slider').addEventListener('input', (e) => {
+            modelRotY = parseFloat(e.target.value);
+            document.getElementById('val-rot-y').innerText = modelRotY + '°';
+            if(currentModelInner) currentModelInner.rotation.y = THREE.MathUtils.degToRad(modelRotY);
+        });
+        document.getElementById('rot-z-slider').addEventListener('input', (e) => {
+            modelRotZ = parseFloat(e.target.value);
+            document.getElementById('val-rot-z').innerText = modelRotZ + '°';
+            if(currentModelInner) currentModelInner.rotation.z = THREE.MathUtils.degToRad(modelRotZ);
+        });
+
+        document.getElementById('size-slider').addEventListener('input', (e) => {
+            currentPointSize = parseFloat(e.target.value);
+            updateValDisplay('val-size', currentPointSize);
+            updateMaterial();
+        });
+        document.getElementById('speed-slider').addEventListener('input', (e) => {
+            currentSpeed = parseFloat(e.target.value);
+            updateValDisplay('val-speed', currentSpeed);
+        });
+        document.getElementById('density-slider').addEventListener('input', (e) => {
+            currentDensity = parseFloat(e.target.value);
+            updateValDisplay('val-density', currentDensity);
+            updateMaterial();
+        });
+        document.getElementById('brightness-slider').addEventListener('input', (e) => {
+            currentBrightness = parseFloat(e.target.value);
+            updateValDisplay('val-bright', currentBrightness);
+            updateMaterial();
+        });
+
+        document.getElementById('flow-enable').addEventListener('change', (e) => {
+            currentFlowEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+        document.getElementById('flow-slider').addEventListener('input', (e) => {
+            currentFlowIntensity = parseFloat(e.target.value);
+            updateMaterial();
+        });
+
+        document.getElementById('twist-enable').addEventListener('change', (e) => {
+            currentTwistEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+        document.getElementById('twist-slider').addEventListener('input', (e) => {
+            currentTwistIntensity = parseFloat(e.target.value);
+            updateMaterial();
+        });
+
+        document.getElementById('wave-enable').addEventListener('change', (e) => {
+            currentWaveEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+        document.getElementById('wave-slider').addEventListener('input', (e) => {
+            currentWaveIntensity = parseFloat(e.target.value);
+            updateMaterial();
+        });
+
+        document.getElementById('explode-enable').addEventListener('change', (e) => {
+            currentExplodeEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+        document.getElementById('explode-slider').addEventListener('input', (e) => {
+            currentExplodeIntensity = parseFloat(e.target.value);
+            updateMaterial();
+        });
+
+        document.getElementById('shatter-enable').addEventListener('change', (e) => {
+            currentShatterEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+        document.getElementById('shatter-slider').addEventListener('input', (e) => {
+            currentShatterSpeed = parseFloat(e.target.value);
+            updateMaterial();
+        });
+
+        document.getElementById('track-enable').addEventListener('change', (e) => {
+            currentTrackEnabled = e.target.checked ? 1.0 : 0.0;
+            if(!e.target.checked) {
+                trackers.forEach(t => t.el.style.display = 'none');
+                const ctx2d = lineCanvas.getContext('2d');
+                ctx2d.clearRect(0, 0, lineCanvas.width, lineCanvas.height);
+            }
+        });
+        document.getElementById('track-slider').addEventListener('input', (e) => {
+            currentTrackCount = parseFloat(e.target.value); 
+        });
+
+        document.getElementById('rain-enable').addEventListener('change', (e) => {
+            currentTimeRainEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+        document.getElementById('rain-slider').addEventListener('input', (e) => {
+            currentTimeRainIntensity = parseFloat(e.target.value);
+            updateMaterial();
+        });
+
+        document.getElementById('audio-enable').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                if (!audioInitialized) initAudio();
+                if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+                document.getElementById('audio-rhythm-enable').checked = false;
+                currentAudioRhythmEnabled = 0.0;
+            }
+            currentAudioEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+
+        document.getElementById('audio-rhythm-enable').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                if (!audioInitialized) initAudio();
+                if (audioContext && audioContext.state === 'suspended') audioContext.resume();
+                document.getElementById('audio-enable').checked = false;
+                currentAudioEnabled = 0.0;
+            }
+            currentAudioRhythmEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+
+        document.getElementById('audio-slider').addEventListener('input', (e) => {
+            currentAudioIntensity = parseFloat(e.target.value);
+            updateMaterial();
+        });
+
+        document.getElementById('sand-enable').addEventListener('change', (e) => {
+            currentSandEnabled = e.target.checked ? 1.0 : 0.0;
+            updateMaterial();
+        });
+        document.getElementById('sand-slider').addEventListener('input', (e) => {
+            currentSandIntensity = parseFloat(e.target.value);
+            updateMaterial();
+        });
+
+        document.getElementById('print-enable').addEventListener('change', (e) => {
+            currentPrintEnabled = e.target.checked ? 1.0 : 0.0;
+            if(e.target.checked) {
+                document.getElementById('laser-enable').checked = false;
+                currentLaserMode = 0.0;
+                printProgress = 0.0;
+            }
+            if (printFrameGroup) printFrameGroup.visible = (currentPrintEnabled > 0.5);
+            updateMaterial();
+        });
+
+        document.getElementById('laser-enable').addEventListener('change', (e) => {
+            currentPrintEnabled = e.target.checked ? 1.0 : 0.0;
+            currentLaserMode = e.target.checked ? 1.0 : 0.0;
+            if(e.target.checked) {
+                document.getElementById('print-enable').checked = false;
+                printProgress = 0.0;
+            }
+            if (printFrameGroup) printFrameGroup.visible = (currentPrintEnabled > 0.5);
+            updateMaterial();
+        });
+
+        document.getElementById('print-slider').addEventListener('input', (e) => {
+            currentPrintSpeed = parseFloat(e.target.value);
+        });
+
+        function createCircleTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const context = canvas.getContext('2d');
+            const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+            gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+            gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.9)');
+            gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+            context.fillStyle = gradient;
+            context.fillRect(0, 0, 64, 64);
+            return new THREE.CanvasTexture(canvas);
+        }
+        const particleTexture = createCircleTexture();
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050505); 
+
+        const mainAmbientLight = new THREE.AmbientLight(0xffffff, 0.6);
+        scene.add(mainAmbientLight);
+        const mainDirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        mainDirLight.position.set(5, 10, 5);
+        scene.add(mainDirLight);
+        const mainBackLight = new THREE.DirectionalLight(0x00ffff, 0.4);
+        mainBackLight.position.set(-5, -5, -5);
+        scene.add(mainBackLight);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 3, 7);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.05;
+        controls.autoRotate = false; 
+        controls.target.set(0, 1.5, 0); 
+
+        let rainLines;
+        const rainGeo = new THREE.BufferGeometry();
+        const rainCount = 1500;
+        const rainPos = new Float32Array(rainCount * 6);
+        const rainUv = new Float32Array(rainCount * 2);
+        for(let i=0; i<rainCount; i++) {
+            let x = (Math.random() - 0.5) * 30;
+            let y = (Math.random() - 0.5) * 30;
+            let z = (Math.random() - 0.5) * 30;
+            rainPos[i*6] = x; rainPos[i*6+1] = y; rainPos[i*6+2] = z;
+            rainUv[i*2] = 0;
+            rainPos[i*6+3] = x; rainPos[i*6+4] = y; rainPos[i*6+5] = z;
+            rainUv[i*2+1] = 1;
+        }
+        rainGeo.setAttribute('position', new THREE.BufferAttribute(rainPos, 3));
+        rainGeo.setAttribute('aDropUv', new THREE.BufferAttribute(rainUv, 1));
+
+        const rainMat = new THREE.ShaderMaterial({
+            uniforms: {
+                uTime: { value: 0 },
+                uTimeRainEnabled: { value: 0 },
+                uTimeRainIntensity: { value: 1.0 }
+            },
+            vertexShader: `
+                attribute float aDropUv;
+                uniform float uTime;
+                uniform float uTimeRainIntensity;
+                void main() {
+                    vec3 pos = position;
+                    vec3 dir = normalize(vec3(0.5, -1.0, 0.2));
+                    float speed = 15.0 + uTimeRainIntensity * 5.0;
+                    pos += dir * uTime * speed;
+                    
+                    pos.x = mod(pos.x + 15.0, 30.0) - 15.0;
+                    pos.y = mod(pos.y + 15.0, 30.0) - 15.0;
+                    pos.z = mod(pos.z + 15.0, 30.0) - 15.0;
+                    
+                    float len = 0.2 + uTimeRainIntensity * 0.4;
+                    if (aDropUv > 0.5) {
+                        pos -= dir * len;
+                    }
+                    
+                    gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+                }
+            `,
+            fragmentShader: `
+                uniform float uTimeRainEnabled;
+                void main() {
+                    if (uTimeRainEnabled < 0.5) discard;
+                    gl_FragColor = vec4(0.2, 1.0, 0.8, 0.6); 
+                }
+            `,
+            transparent: true,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false
+        });
+        rainLines = new THREE.LineSegments(rainGeo, rainMat);
+        scene.add(rainLines);
+
+        const upAxisSelect = document.getElementById('up-axis');
+        const objLoader = new OBJLoader();
+        const textureLoader = new THREE.TextureLoader();
+
+        const vertexShader = `
+            varying vec2 vUv;
+            varying float vHash; 
+            varying float vSandFade; 
+            varying vec3 vWorldPos; 
+            varying float vShatterAmt; 
+            varying float vCorrosion; 
+            
+            uniform float uPointSize;
+            uniform float uTime;       
+            
+            uniform float uFlowEnabled;
+            uniform float uFlowIntensity;
+            uniform float uTwistEnabled;
+            uniform float uTwistIntensity;
+            uniform float uWaveEnabled;
+            uniform float uWaveIntensity;
+            uniform float uExplodeEnabled;
+            uniform float uExplodeIntensity;
+            
+            uniform float uShatterEnabled;
+            uniform float uShatterSpeed;
+
+            uniform float uTimeRainEnabled;   
+            uniform float uTimeRainIntensity; 
+
+            uniform float uAudioEnabled;
+            uniform float uAudioRhythmEnabled; 
+            uniform float uAudioIntensity;
+            uniform float uAudioLevel;
+            uniform float uSandEnabled;
+            uniform float uSandIntensity;
+            
+            void main() {
+                vUv = uv; 
+                vHash = fract(sin(dot(position.xyz, vec3(12.9898, 78.233, 54.53))) * 43758.5453);
+                vSandFade = 1.0; 
+                vShatterAmt = 0.0; 
+                vCorrosion = 0.0; 
+                
+                vec3 pos = position;
+                
+                if (uTwistEnabled > 0.5) {
+                    float blob = sin(pos.x * 3.0 + uTime * 0.5) * cos(pos.y * 3.0 - uTime * 0.8) * sin(pos.z * 3.0 + uTime * 0.6);
+                    float localMask = smoothstep(0.3, 0.8, abs(blob));
+                    vec3 snakeWriggle;
+                    snakeWriggle.x = sin(pos.y * 5.0 - uTime * 5.0);
+                    snakeWriggle.y = cos(pos.z * 4.0 + uTime * 4.0) * 0.5;
+                    snakeWriggle.z = sin(pos.x * 5.0 - uTime * 5.0);
+                    pos += snakeWriggle * localMask * (uTwistIntensity * 0.3);
+                }
+                
+                if (uFlowEnabled > 0.5) {
+                    float flow = sin(pos.y * 3.0 - uTime * 2.0) * 0.05;
+                    vec3 offset;
+                    offset.x = sin(vHash * 10.0 + uTime * 1.5) * 0.15;
+                    offset.y = cos(vHash * 20.0 + uTime * 1.2) * 0.15;
+                    offset.z = sin(vHash * 30.0 + uTime * 1.8) * 0.15;
+                    pos += (offset * vHash + vec3(0.0, flow, 0.0)) * uFlowIntensity;
+                }
+
+                if (uWaveEnabled > 0.5) {
+                    float waveSpeed = uTime * 2.0;
+                    float waveX = pos.x * 2.5;
+                    float waveZ = pos.z * 2.5;
+                    
+                    float waveY = sin(waveX + waveSpeed) * cos(waveZ + waveSpeed * 0.8) * 0.2;
+                    waveY += sin(waveX * 0.8 - waveSpeed * 1.5) * 0.1;
+                    
+                    pos.y += waveY * uWaveIntensity;
+                    pos.x += cos(waveY * 5.0 + waveSpeed) * 0.1 * uWaveIntensity;
+                    pos.z += sin(waveY * 5.0 + waveSpeed) * 0.1 * uWaveIntensity;
+                }
+
+                if (uExplodeEnabled > 0.5) {
+                    float cycleSpeed = 0.05 + uExplodeIntensity * 0.3;
+                    float exTime = fract(uTime * cycleSpeed);
+                    float explodeAmt = 0.0;
+                    if (exTime < 0.05) { 
+                        explodeAmt = smoothstep(0.0, 0.05, exTime);
+                    } else { 
+                        float decayTime = (exTime - 0.05) / 0.95;
+                        explodeAmt = pow(1.0 - decayTime, 3.0); 
+                    }
+                    float theta = vHash * 6.2831853; 
+                    float phi = acos(2.0 * fract(vHash * 137.92) - 1.0); 
+                    vec3 starDir = vec3(sin(phi) * cos(theta), sin(phi) * sin(theta), cos(phi));
+                    float starDist = 8.0 + fract(vHash * 912.45) * 30.0;
+                    pos += starDir * explodeAmt * starDist;
+                }
+
+                if (uShatterEnabled > 0.5) {
+                    float timePhase = uTime * uShatterSpeed;
+                    float shatterAmt = smoothstep(-0.4, 0.4, sin(timePhase));
+                    vShatterAmt = shatterAmt; 
+
+                    if (shatterAmt > 0.001) {
+                        float gridSize = 5.0; 
+                        vec3 cell = floor(position * gridSize);
+                        vec3 cellCenter = (cell + 0.5) / gridSize;
+                        
+                        float cellHash = fract(sin(dot(cell, vec3(12.9898, 78.233, 54.53))) * 43758.5453);
+                        
+                        vec3 dir = normalize(vec3(
+                            fract(cellHash * 13.33) - 0.5,
+                            fract(cellHash * 29.77) - 0.5,
+                            fract(cellHash * 41.11) - 0.5
+                        ));
+                        
+                        vec3 rotAxis = normalize(vec3(
+                            fract(cellHash * 55.5) - 0.5,
+                            fract(cellHash * 66.6) - 0.5,
+                            fract(cellHash * 77.7) - 0.5
+                        ));
+                        float angle = shatterAmt * (cellHash * 12.0 - 6.0);
+                        
+                        vec3 localPos = pos - cellCenter;
+                        
+                        float s = sin(angle);
+                        float c = cos(angle);
+                        float oc = 1.0 - c;
+                        mat3 rotMat = mat3(
+                            oc * rotAxis.x * rotAxis.x + c,           oc * rotAxis.x * rotAxis.y - rotAxis.z * s,  oc * rotAxis.z * rotAxis.x + rotAxis.y * s,
+                            oc * rotAxis.x * rotAxis.y + rotAxis.z * s,  oc * rotAxis.y * rotAxis.y + c,           oc * rotAxis.y * rotAxis.z - rotAxis.x * s,
+                            oc * rotAxis.z * rotAxis.x - rotAxis.y * s,  oc * rotAxis.y * rotAxis.z + rotAxis.x * s,  oc * rotAxis.z * rotAxis.z + c
+                        );
+                        localPos = rotMat * localPos;
+                        
+                        float maxDist = 2.0 + cellHash * 4.0;
+                        vec3 newCenter = cellCenter + dir * shatterAmt * maxDist;
+                        pos = newCenter + localPos;
+                    }
+                }
+
+                if (uTimeRainEnabled > 0.5) {
+                    vec3 rDir = normalize(vec3(0.5, -1.0, 0.2)); 
+                    vec3 rRight = normalize(cross(rDir, vec3(0.0, 1.0, 0.0)));
+                    vec3 rFwd = cross(rRight, rDir);
+                    
+                    vec2 gridUv = vec2(dot(vWorldPos, rRight), dot(vWorldPos, rFwd)) * 5.0; // 放大网格刻度，窟窿面积变大
+                    vec2 gridId = floor(gridUv);
+                    float h = fract(sin(dot(gridId, vec2(12.9898, 78.233))) * 43758.5453);
+                    
+                    float threshold = clamp(1.0 - uTimeRainIntensity * 0.4, 0.1, 0.95);
+                    
+                    if (h > threshold) {
+                        float lineZ = dot(vWorldPos, rDir); 
+                        float speed = 3.0 + h * 2.0;
+                        float phase = uTime * speed + h * 100.0;
+                        float drop = fract(lineZ * 0.8 - phase); 
+                        
+                        vec2 gridFract = fract(gridUv) - 0.5;
+                        float dist = length(gridFract);
+                        
+                        // 最大腐蚀半径提升
+                        float maxRadius = 1.2 * ((h - threshold) / (1.0 - threshold)); 
+                        
+                        if (dist < maxRadius) {
+                            float hole = pow(1.0 - drop, 2.0); // 让窟窿存在时间更长更明显
+                            float edge = 1.0 - smoothstep(maxRadius * 0.1, maxRadius, dist);
+                            vCorrosion = hole * edge * 2.5; // 倍增腐蚀信号强度
+                        }
+                    }
+                }
+
+                if (uAudioEnabled > 0.5) {
+                    float pulse = uAudioLevel * uAudioIntensity;
+                    float angle = pulse * 0.6 * (vHash - 0.5);
+                    float s = sin(angle);
+                    float c = cos(angle);
+                    pos.xz = vec2(pos.x * c - pos.z * s, pos.x * s + pos.z * c);
+                    pos *= (1.0 + pulse * 0.25); 
+                    pos.y += pulse * 0.7 * vHash; 
+                }
+
+                if (uAudioRhythmEnabled > 0.5) {
+                    float pulse = uAudioLevel * uAudioIntensity;
+                    vec2 grid = floor(position.xz * 12.0); 
+                    float regionHash = fract(sin(dot(grid, vec2(15.23, 76.19))) * 43758.5453);
+                    float dynamicResponse = sin(uTime * 10.0 + regionHash * 50.0);
+                    
+                    if (abs(dynamicResponse) > 0.2) {
+                        float jumpHeight = pow(pulse, 1.2) * 3.0 * regionHash * dynamicResponse;
+                        pos.y += jumpHeight;
+                    }
+                }
+
+                if (uSandEnabled > 0.5 && uSandIntensity > 0.01) {
+                    float windMask = 1.0 - smoothstep(uSandIntensity - 0.1, uSandIntensity + 0.05, vHash);
+                    if (windMask > 0.0) {
+                        float speed = 0.3 + vHash * 0.4; 
+                        float movePhase = uTime * speed + vHash * 100.0;
+                        float progress = fract(movePhase);
+                        vec3 windDir = normalize(vec3(1.2, 0.3, 0.6));
+                        vec3 turb;
+                        turb.x = sin(vHash * 50.0 + uTime * 1.2) * 0.4;
+                        turb.y = cos(vHash * 40.0 + uTime * 0.9) * 0.4;
+                        turb.z = sin(vHash * 60.0 + uTime * 1.5) * 0.4;
+                        pos += windDir * (progress * 6.0) * windMask;
+                        pos += turb * progress * windMask;
+                        vSandFade = mix(1.0, 1.0 - progress, windMask);
+                    }
+                }
+                
+                vec4 worldPosition = modelMatrix * vec4(pos, 1.0);
+                vWorldPos = worldPosition.xyz; 
+
+                vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+                gl_PointSize = uPointSize * (10.0 / -mvPosition.z); 
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
+
+        const fragmentShader = `
+            varying vec2 vUv;
+            varying float vHash;
+            varying float vSandFade; 
+            varying vec3 vWorldPos; 
+            varying float vShatterAmt; 
+            varying float vCorrosion; 
+            
+            uniform sampler2D uTexture;
+            uniform sampler2D uParticleTexture;
+            uniform float uHasTexture;
+            uniform float uDensity;      
+            uniform float uBrightness;   
+            uniform float uTime;
+            uniform float uTimeRainEnabled; 
+            
+            uniform float uPrintEnabled;
+            uniform float uLaserMode;
+            uniform float uPrintProgress;
+            uniform float uWorldMinY;
+            uniform float uWorldMaxY;
+            
+            uniform vec3 uLaserDots[8]; 
+            
+            void main() {
+                if (vHash > uDensity) discard;
+
+                vec4 particleShape = texture2D(uParticleTexture, gl_PointCoord);
+                vec4 baseColor = vec4(1.0, 1.0, 1.0, 1.0); 
+                
+                if (uHasTexture > 0.5) baseColor = texture2D(uTexture, vUv);
+                
+                baseColor.rgb *= uBrightness;
+                baseColor.a *= vSandFade;
+
+                // ============================
+                // 修复增强：产生极其强烈的酸性绿光和彻底的空洞剔除
+                // ============================
+                if (uTimeRainEnabled > 0.5 && vCorrosion > 0.01) {
+                    // 当腐蚀极强时，彻底剔除点，形成真正的窟窿
+                    if (vCorrosion > 0.95) discard; 
+                    
+                    vec3 acidColor = vec3(0.0, 1.0, 0.4); 
+                    // 利用倍乘实现高科技过曝发光效果
+                    baseColor.rgb += acidColor * pow(vCorrosion, 0.8) * 2.5; 
+                    // 边缘向中心逐渐变得透明
+                    baseColor.a = mix(baseColor.a, 0.0, smoothstep(0.7, 0.95, vCorrosion));
+                }
+
+                if (uPrintEnabled > 0.5) {
+                    float currentScanY = mix(uWorldMinY, uWorldMaxY, uPrintProgress);
+                    
+                    if (vWorldPos.y > currentScanY) discard;
+
+                    if (uLaserMode > 0.5) {
+                        float edgeDist = currentScanY - vWorldPos.y;
+                        float contourZone = (uWorldMaxY - uWorldMinY) * 0.015; 
+                        
+                        if (edgeDist >= 0.0 && edgeDist < contourZone) {
+                            float edgeIntensity = 1.0 - (edgeDist / contourZone);
+                            vec3 contourRed = vec3(1.0, 0.0, 0.1); 
+                            baseColor.rgb = mix(baseColor.rgb, contourRed, edgeIntensity * 0.8);
+                            baseColor.rgb += contourRed * pow(edgeIntensity, 2.0) * 3.5; 
+                        }
+
+                        float dist = 9999.0;
+                        dist = min(dist, distance(vWorldPos, uLaserDots[0]));
+                        dist = min(dist, distance(vWorldPos, uLaserDots[1]));
+                        dist = min(dist, distance(vWorldPos, uLaserDots[2]));
+                        dist = min(dist, distance(vWorldPos, uLaserDots[3]));
+                        dist = min(dist, distance(vWorldPos, uLaserDots[4]));
+                        dist = min(dist, distance(vWorldPos, uLaserDots[5]));
+                        dist = min(dist, distance(vWorldPos, uLaserDots[6]));
+                        dist = min(dist, distance(vWorldPos, uLaserDots[7]));
+
+                        float glowZone = (uWorldMaxY - uWorldMinY) * 0.08; 
+                        if (dist < glowZone && edgeDist < glowZone * 2.5) {
+                            float intensity = 1.0 - (dist / glowZone);
+                            vec3 trackingRed = vec3(1.0, 0.2, 0.5); 
+                            baseColor.rgb += trackingRed * pow(intensity, 1.5) * 1.5; 
+                        }
+
+                        float scanline = sin(vWorldPos.y * 200.0) * 0.5 + 0.5;
+                        float depthFade = 1.0 - clamp(edgeDist / 0.2, 0.0, 1.0);
+                        baseColor.rgb += vec3(1.0, 0.0, 0.3) * scanline * 0.15 * depthFade;
+
+                    } else {
+                        float scanZone = (uWorldMaxY - uWorldMinY) * 0.05; 
+                        float distanceToLaser = currentScanY - vWorldPos.y;
+                        
+                        if (distanceToLaser < scanZone && distanceToLaser > 0.0) {
+                            float intensity = 1.0 - (distanceToLaser / scanZone);
+                            vec3 highTechRed = vec3(1.0, 0.0, 0.3); 
+                            baseColor.rgb = mix(baseColor.rgb, highTechRed, intensity * 0.9);
+                            baseColor.rgb += highTechRed * intensity * 0.8; 
+                        }
+                        
+                        float pulse = sin(vWorldPos.y * 20.0 - uTime * 4.0) * 0.5 + 0.5;
+                        baseColor.rgb += vec3(0.0, 0.5, 1.0) * pulse * 0.15; 
+                    }
+                }
+                
+                gl_FragColor = baseColor * particleShape;
+            }
+        `;
+
+        function updateMaterial() {
+            if (!currentTurntable) return;
+            currentTurntable.traverse((child) => {
+                if ((child.isPoints || child.userData.isShatterLines) && child.material.type === 'ShaderMaterial') {
+                    if (currentTexture) {
+                        child.material.uniforms.uTexture.value = currentTexture;
+                        child.material.uniforms.uHasTexture.value = 1.0;
+                    }
+                    
+                    child.material.uniforms.uPointSize.value = currentPointSize;
+                    child.material.uniforms.uDensity.value = currentDensity;
+                    child.material.uniforms.uBrightness.value = currentBrightness;
+                    
+                    child.material.uniforms.uFlowEnabled.value = currentFlowEnabled;
+                    child.material.uniforms.uFlowIntensity.value = currentFlowIntensity;
+                    child.material.uniforms.uTwistEnabled.value = currentTwistEnabled;
+                    child.material.uniforms.uTwistIntensity.value = currentTwistIntensity;
+                    
+                    child.material.uniforms.uWaveEnabled.value = currentWaveEnabled;
+                    child.material.uniforms.uWaveIntensity.value = currentWaveIntensity;
+
+                    child.material.uniforms.uExplodeEnabled.value = currentExplodeEnabled;
+                    child.material.uniforms.uExplodeIntensity.value = currentExplodeIntensity;
+
+                    child.material.uniforms.uShatterEnabled.value = currentShatterEnabled;
+                    child.material.uniforms.uShatterSpeed.value = currentShatterSpeed;
+
+                    child.material.uniforms.uTimeRainEnabled.value = currentTimeRainEnabled;
+                    child.material.uniforms.uTimeRainIntensity.value = currentTimeRainIntensity;
+
+                    child.material.uniforms.uAudioEnabled.value = currentAudioEnabled;
+                    child.material.uniforms.uAudioRhythmEnabled.value = currentAudioRhythmEnabled;
+                    child.material.uniforms.uAudioIntensity.value = currentAudioIntensity;
+                    child.material.uniforms.uSandEnabled.value = currentSandEnabled;
+                    child.material.uniforms.uSandIntensity.value = currentSandIntensity;
+
+                    child.material.uniforms.uPrintEnabled.value = currentPrintEnabled;
+                    child.material.uniforms.uLaserMode.value = currentLaserMode;
+                    
+                    child.material.needsUpdate = true;
+                }
+            });
+        }
+
+        function createCommonUniforms() {
+            return {
+                uPointSize: { value: currentPointSize },
+                uParticleTexture: { value: particleTexture },
+                uTexture: { value: currentTexture },
+                uHasTexture: { value: currentTexture ? 1.0 : 0.0 },
+                uDensity: { value: currentDensity },        
+                uBrightness: { value: currentBrightness },
+                uTime: { value: 0.0 },                      
+                uFlowEnabled: { value: currentFlowEnabled },
+                uFlowIntensity: { value: currentFlowIntensity },
+                uTwistEnabled: { value: currentTwistEnabled },
+                uTwistIntensity: { value: currentTwistIntensity },
+                uWaveEnabled: { value: currentWaveEnabled },
+                uWaveIntensity: { value: currentWaveIntensity },
+                uExplodeEnabled: { value: currentExplodeEnabled },
+                uExplodeIntensity: { value: currentExplodeIntensity },
+                uShatterEnabled: { value: currentShatterEnabled }, 
+                uShatterSpeed: { value: currentShatterSpeed }, 
+                uTimeRainEnabled: { value: currentTimeRainEnabled },     
+                uTimeRainIntensity: { value: currentTimeRainIntensity }, 
+                uAudioEnabled: { value: currentAudioEnabled },
+                uAudioRhythmEnabled: { value: currentAudioRhythmEnabled },
+                uAudioIntensity: { value: currentAudioIntensity },
+                uAudioLevel: { value: 0.0 },
+                uSandEnabled: { value: currentSandEnabled },
+                uSandIntensity: { value: currentSandIntensity },
+                uPrintEnabled: { value: currentPrintEnabled },
+                uLaserMode: { value: currentLaserMode },
+                uPrintProgress: { value: 0.0 },
+                uWorldMinY: { value: 0.0 },
+                uWorldMaxY: { value: 1.0 },
+                uLaserDots: { value: [
+                    new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(),
+                    new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()
+                ] }
+            };
+        }
+
+        function alignAndFormatModel(object) {
+            const pointGroup = new THREE.Group();
+            
+            currentModelInner = pointGroup;
+            currentModelInner.rotation.set(
+                THREE.MathUtils.degToRad(modelRotX),
+                THREE.MathUtils.degToRad(modelRotY),
+                THREE.MathUtils.degToRad(modelRotZ)
+            );
+
+            const rawBox = new THREE.Box3().setFromObject(object);
+            const rawCenter = rawBox.getCenter(new THREE.Vector3());
+
+            const mainMeshMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, side: THREE.DoubleSide });
+            if(currentTexture) mainMeshMat.map = currentTexture;
+
+            targetPool = [];
+
+            object.traverse((child) => {
+                if (child.isMesh) {
+                    
+                    const posAttr = child.geometry.attributes.position;
+                    let step = Math.max(1, Math.floor(posAttr.count / 2000)); 
+                    for(let i=0; i<posAttr.count; i+=step) {
+                        targetPool.push(new THREE.Vector3(posAttr.getX(i) - rawCenter.x, posAttr.getY(i) - rawCenter.y, posAttr.getZ(i) - rawCenter.z));
+                    }
+
+                    const shaderMaterial = new THREE.ShaderMaterial({
+                        vertexShader: vertexShader,
+                        fragmentShader: fragmentShader,
+                        uniforms: createCommonUniforms(), 
+                        transparent: true,
+                        depthWrite: false 
+                    });
+
+                    const points = new THREE.Points(child.geometry, shaderMaterial);
+                    points.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z);
+                    points.userData.isPointCloud = true;
+                    points.visible = (mainDisplayMode === 'points');
+                    pointGroup.add(points);
+
+                    const solidMesh = new THREE.Mesh(child.geometry, mainMeshMat);
+                    solidMesh.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z);
+                    solidMesh.userData.isSolidMesh = true;
+                    solidMesh.visible = (mainDisplayMode === 'mesh');
+                    pointGroup.add(solidMesh);
+
+                    const linePositions = [];
+                    const numLines = 2000; 
+                    for(let i=0; i<numLines; i++) {
+                        let idx1 = Math.floor(Math.random() * posAttr.count);
+                        let idx2 = Math.floor(Math.random() * posAttr.count);
+                        linePositions.push(
+                            posAttr.getX(idx1), posAttr.getY(idx1), posAttr.getZ(idx1),
+                            posAttr.getX(idx2), posAttr.getY(idx2), posAttr.getZ(idx2)
+                        );
+                    }
+                    const lineGeo = new THREE.BufferGeometry();
+                    lineGeo.setAttribute('position', new THREE.Float32BufferAttribute(linePositions, 3));
+                    
+                    const lineMat = new THREE.ShaderMaterial({
+                        vertexShader: vertexShader,
+                        fragmentShader: `
+                            varying float vShatterAmt;
+                            varying float vCorrosion; 
+                            uniform float uShatterEnabled;
+                            uniform float uTimeRainEnabled;
+                            uniform float uTime;
+                            void main() {
+                                if (uShatterEnabled < 0.5 || vShatterAmt < 0.05) discard;
+                                if (uTimeRainEnabled > 0.5 && vCorrosion > 0.5) discard; 
+                                float pulse = sin(uTime * 10.0) * 0.2 + 0.8;
+                                gl_FragColor = vec4(1.0, 0.1, 0.25, (vShatterAmt * 0.6) * pulse);
+                            }
+                        `,
+                        uniforms: createCommonUniforms(), 
+                        transparent: true,
+                        depthWrite: false,
+                        blending: THREE.AdditiveBlending 
+                    });
+                    
+                    const shatterLines = new THREE.LineSegments(lineGeo, lineMat);
+                    shatterLines.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z);
+                    shatterLines.userData.isShatterLines = true; 
+                    shatterLines.visible = (mainDisplayMode === 'points'); 
+                    pointGroup.add(shatterLines);
+                }
+            });
+
+            if (targetPool.length === 0) targetPool.push(new THREE.Vector3(0,0,0));
+
+            trackers.forEach(t => {
+                const randomPos = targetPool[Math.floor(Math.random() * targetPool.length)];
+                t.currentPos.copy(randomPos);
+                t.targetPos.copy(randomPos);
+            });
+
+            const wrapper = new THREE.Group();
+            wrapper.add(pointGroup);
+            
+            if (upAxisSelect.value === 'Z') {
+                wrapper.rotation.x = -Math.PI / 2; 
+            }
+
+            wrapper.updateMatrixWorld(true);
+            const alignedBox = new THREE.Box3().setFromObject(wrapper);
+            const size = alignedBox.getSize(new THREE.Vector3());
+            
+            const maxDim = Math.max(size.x, size.y, size.z);
+            if (maxDim > 0) {
+                const scale = 3.5 / maxDim; 
+                wrapper.scale.set(scale, scale, scale);
+            }
+
+            wrapper.updateMatrixWorld(true);
+            const finalBox = new THREE.Box3().setFromObject(wrapper);
+            wrapper.position.y -= finalBox.min.y; 
+
+            const center = new THREE.Vector3();
+            const scaledBox = new THREE.Box3().setFromObject(wrapper);
+            scaledBox.getCenter(center);
+            const scaledSize = scaledBox.getSize(new THREE.Vector3());
+
+            const boxX = scaledSize.x * 1.05;
+            const boxY = scaledSize.y * 1.05;
+            const boxZ = scaledSize.z * 1.05;
+
+            const frameGeometry = new THREE.BoxGeometry(boxX, boxY, boxZ);
+            const edges = new THREE.EdgesGeometry(frameGeometry);
+            const frameMaterial = new THREE.LineBasicMaterial({ 
+                color: 0xffffff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending 
+            });
+            const frameLine = new THREE.LineSegments(edges, frameMaterial);
+            frameLine.position.copy(center);
+            frameLine.userData.boxSize = { x: boxX, y: boxY, z: boxZ };
+
+            const l_w = boxX / 2;
+            const l_h = boxY / 2;
+            const l_d = boxZ / 2;
+            
+            const laserPositions = new Float32Array([
+                -l_w, l_h, -l_d,   0, 0, 0, 
+                -l_w, l_h, -l_d,   0, 0, 0, 
+                 l_w, l_h, -l_d,   0, 0, 0, 
+                 l_w, l_h, -l_d,   0, 0, 0, 
+                -l_w, l_h,  l_d,   0, 0, 0, 
+                -l_w, l_h,  l_d,   0, 0, 0, 
+                 l_w, l_h,  l_d,   0, 0, 0, 
+                 l_w, l_h,  l_d,   0, 0, 0  
+            ]);
+            const laserGeo = new THREE.BufferGeometry();
+            laserGeo.setAttribute('position', new THREE.BufferAttribute(laserPositions, 3));
+            
+            const laserMat = new THREE.LineBasicMaterial({ 
+                color: 0xff0055, transparent: true, opacity: 0.6, blending: THREE.AdditiveBlending 
+            });
+            const laserLines = new THREE.LineSegments(laserGeo, laserMat);
+            laserLines.frustumCulled = false; 
+
+            frameLine.add(laserLines); 
+            frameLine.userData.laserLines = laserLines;
+
+            const hudSprites = [];
+            const corners = [
+                { x: -l_w, y: l_h, z: -l_d },
+                { x: l_w, y: l_h, z: -l_d },
+                { x: -l_w, y: l_h, z: l_d },
+                { x: l_w, y: l_h, z: l_d }
+            ];
+
+            function createHUDSprite(index) {
+                const canvas = document.createElement('canvas');
+                canvas.width = 256; canvas.height = 128;
+                const ctx = canvas.getContext('2d');
+                const texture = new THREE.CanvasTexture(canvas);
+                const material = new THREE.SpriteMaterial({ map: texture, transparent: true, blending: THREE.AdditiveBlending });
+                const sprite = new THREE.Sprite(material);
+                sprite.scale.set(1.5, 0.75, 1.0); 
+                return { sprite, canvas, ctx, texture, index };
+            }
+
+            corners.forEach((c, i) => {
+                const hud = createHUDSprite(i);
+                hud.sprite.position.set(c.x * 1.15, c.y * 1.15, c.z * 1.15); 
+                frameLine.add(hud.sprite);
+                hudSprites.push(hud);
+            });
+            frameLine.userData.hudSprites = hudSprites;
+
+            const laserGroup = new THREE.Group();
+            
+            const planeGeo = new THREE.PlaneGeometry(boxX, boxZ);
+            
+            const planeMat = new THREE.MeshBasicMaterial({ 
+                color: 0xff0055, 
+                transparent: true, 
+                opacity: 0.15, 
+                side: THREE.DoubleSide, 
+                blending: THREE.AdditiveBlending, 
+                depthWrite: false 
+            });
+            const planeMesh = new THREE.Mesh(planeGeo, planeMat);
+            planeMesh.rotation.x = Math.PI / 2;
+            laserGroup.add(planeMesh);
+
+            const borderGeo = new THREE.EdgesGeometry(planeGeo);
+            const borderMat = new THREE.LineBasicMaterial({ color: 0xff0055, transparent: true, opacity: 1.0, blending: THREE.AdditiveBlending });
+            const border = new THREE.LineSegments(borderGeo, borderMat);
+            border.rotation.x = Math.PI / 2;
+            laserGroup.add(border);
+
+            laserGroup.position.set(center.x, scaledBox.min.y, center.z);
+            laserGroup.userData.minY = scaledBox.min.y - (scaledSize.y * 0.01);
+            laserGroup.userData.maxY = scaledBox.max.y + (scaledSize.y * 0.01);
+
+            printFrameGroup = new THREE.Group();
+            printFrameGroup.add(frameLine);
+            printFrameGroup.add(laserGroup);
+            printFrameGroup.visible = (currentPrintEnabled > 0.5);
+            scanLaser = laserGroup;
+
+            const turntable = new THREE.Group();
+            turntable.add(wrapper);
+            turntable.add(printFrameGroup); 
+            
+            wrapper.traverse((child) => {
+                if ((child.isPoints || child.userData.isShatterLines) && child.material.type === 'ShaderMaterial') {
+                    child.material.uniforms.uWorldMinY.value = laserGroup.userData.minY;
+                    child.material.uniforms.uWorldMaxY.value = laserGroup.userData.maxY;
+                }
+            });
+
+            return turntable;
+        }
+
+        document.getElementById('obj-input').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const object = objLoader.parse(e.target.result);
+                
+                if (currentTurntable) {
+                    scene.remove(currentTurntable);
+                    printFrameGroup = null;
+                    scanLaser = null;
+                }
+                currentTurntable = alignAndFormatModel(object);
+                scene.add(currentTurntable);
+                updateMaterial();
+
+                previewMeshGroup.clear();
+                
+                const rawBox = new THREE.Box3().setFromObject(object);
+                const rawCenter = rawBox.getCenter(new THREE.Vector3());
+                
+                const meshMat = new THREE.MeshStandardMaterial({ color: 0xcccccc, side: THREE.DoubleSide });
+                if(currentTexture) meshMat.map = currentTexture;
+
+                object.traverse((child) => {
+                    if (child.isMesh) {
+                        const cloneMesh = new THREE.Mesh(child.geometry, meshMat);
+                        cloneMesh.position.set(-rawCenter.x, -rawCenter.y, -rawCenter.z);
+                        previewMeshGroup.add(cloneMesh);
+                    }
+                });
+
+                if (upAxisSelect.value === 'Z') {
+                    previewGroup.rotation.x = -Math.PI / 2; 
+                } else {
+                    previewGroup.rotation.x = 0;
+                }
+
+                previewGroup.updateMatrixWorld(true);
+                const alignedBoxPreview = new THREE.Box3().setFromObject(previewGroup);
+                const sizePreview = alignedBoxPreview.getSize(new THREE.Vector3());
+                const maxDimPreview = Math.max(sizePreview.x, sizePreview.y, sizePreview.z);
+                if (maxDimPreview > 0) {
+                    const scale = 3.5 / maxDimPreview; 
+                    previewGroup.scale.set(scale, scale, scale);
+                }
+                
+                previewGroup.updateMatrixWorld(true);
+                const finalBoxPreview = new THREE.Box3().setFromObject(previewGroup);
+                previewGroup.position.y -= finalBoxPreview.min.y;
+                previewGroup.position.y -= (finalBoxPreview.max.y - finalBoxPreview.min.y)/2; 
+                
+                previewPlaceholder.style.display = 'none';
+            };
+            reader.readAsText(file);
+        });
+
+        upAxisSelect.addEventListener('change', () => {
+            document.getElementById('obj-input').dispatchEvent(new Event('change'));
+        });
+
+        document.getElementById('tex-input').addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                textureLoader.load(e.target.result, (texture) => {
+                    texture.colorSpace = THREE.SRGBColorSpace; 
+                    currentTexture = texture;
+                    
+                    updateMaterial();
+
+                    if (currentTurntable) {
+                        currentTurntable.traverse((child) => {
+                            if (child.userData.isSolidMesh) {
+                                child.material.map = currentTexture;
+                                child.material.needsUpdate = true;
+                            }
+                        });
+                    }
+
+                    previewMeshGroup.traverse((child) => {
+                        if(child.isMesh) {
+                            child.material.map = currentTexture;
+                            child.material.needsUpdate = true;
+                        }
+                    });
+                });
+            };
+            reader.readAsDataURL(file);
+        });
+
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            controls.update(); 
+            previewControls.update();
+            
+            elapsedTime = clock.getElapsedTime();
+            let delta = elapsedTime - lastTime;
+            lastTime = elapsedTime;
+
+            if (audioInitialized && (currentAudioEnabled > 0.5 || currentAudioRhythmEnabled > 0.5) && analyser) {
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for(let i = 0; i < dataArray.length; i++) {
+                    sum += dataArray[i];
+                }
+                let avg = sum / dataArray.length;
+                let targetLevel = avg / 45.0; 
+                currentAudioLevel += (targetLevel - currentAudioLevel) * 0.15;
+            } else {
+                currentAudioLevel += (0.0 - currentAudioLevel) * 0.1;
+            }
+
+            if (rainLines) {
+                rainLines.material.uniforms.uTime.value = elapsedTime;
+                rainLines.material.uniforms.uTimeRainEnabled.value = currentTimeRainEnabled;
+                rainLines.material.uniforms.uTimeRainIntensity.value = currentTimeRainIntensity;
+            }
+            
+            if (trackers.length > 0 && targetPool.length > 0) {
+                let showCount = currentTrackEnabled > 0.5 ? Math.floor(currentTrackCount) : 0;
+                
+                const ctx2d = lineCanvas.getContext('2d');
+                ctx2d.clearRect(0, 0, lineCanvas.width, lineCanvas.height);
+                let activePoints = [];
+
+                trackers.forEach((t, index) => {
+                    if (index < showCount && currentModelInner) {
+                        t.currentPos.lerp(t.targetPos, delta * t.speed * 2.0);
+                        t.timer += delta;
+                        
+                        if (t.timer >= 3.0) {
+                            t.targetPos.copy(targetPool[Math.floor(Math.random() * targetPool.length)]);
+                            t.timer = 0;
+                        }
+
+                        currentModelInner.updateMatrixWorld();
+                        const wp = t.currentPos.clone().applyMatrix4(currentModelInner.matrixWorld);
+                        wp.project(camera);
+
+                        if (wp.z < 1.0 && wp.z > -1.0 && wp.x >= -1 && wp.x <= 1 && wp.y >= -1 && wp.y <= 1) {
+                            t.el.style.display = 'block';
+                            const x = (wp.x * 0.5 + 0.5) * window.innerWidth;
+                            const y = (wp.y * -0.5 + 0.5) * window.innerHeight;
+                            
+                            t.el.style.transform = `translate3d(calc(-50% + ${x}px), calc(-50% + ${y}px), 0)`;
+                            activePoints.push({ x: x, y: y });
+                            
+                            if (Math.random() > 0.8) {
+                                t.label.innerHTML = `TGT-${t.id} [${wp.x.toFixed(2)}, ${wp.y.toFixed(2)}]<br>SYS. OK | ${(Math.random()*99).toFixed(1)}%`;
+                            }
+                        } else {
+                            t.el.style.display = 'none'; 
+                        }
+                    } else {
+                        t.el.style.display = 'none';
+                    }
+                });
+
+                if (currentTrackEnabled > 0.5 && activePoints.length > 1) {
+                    ctx2d.strokeStyle = 'rgba(150, 255, 150, 0.4)'; 
+                    ctx2d.lineWidth = 1;                             
+                    ctx2d.beginPath();
+                    ctx2d.moveTo(activePoints[0].x, activePoints[0].y);
+                    for (let p = 1; p < activePoints.length; p++) {
+                        ctx2d.lineTo(activePoints[p].x, activePoints[p].y);
+                    }
+                    ctx2d.closePath(); 
+                    ctx2d.stroke();
+                }
+            }
+
+            if (currentPrintEnabled > 0.5) {
+                printProgress += delta * currentPrintSpeed * 0.15;
+                if (printProgress > 1.08) printProgress = 0.0;
+                
+                if (scanLaser && printFrameGroup) {
+                    let clampedProgress = Math.min(Math.max(printProgress, 0.0), 1.0);
+                    const currentScanY = THREE.MathUtils.lerp(
+                        scanLaser.userData.minY, 
+                        scanLaser.userData.maxY, 
+                        clampedProgress
+                    );
+                    scanLaser.position.y = currentScanY;
+
+                    const fLine = printFrameGroup.children[0];
+                    const lLines = fLine.userData.laserLines;
+                    
+                    if (lLines) {
+                        lLines.visible = (currentLaserMode > 0.5); 
+                        
+                        const localY = currentScanY - fLine.position.y;
+                        const posAttr = lLines.geometry.attributes.position;
+                        
+                        const l_w = fLine.userData.boxSize.x / 2;
+                        const l_d = fLine.userData.boxSize.z / 2;
+
+                        let t0, t1, t2, t3, t4, t5, t6, t7;
+
+                        if (currentLaserMode > 0.5) {
+                            const speed = 40.0; 
+                            const t = elapsedTime * speed; 
+                            
+                            t0 = { x: Math.sin(t * 1.0) * l_w, z: Math.sin(t * 0.05) * l_d };
+                            t1 = { x: Math.sin(t * 1.2 + 1.0) * l_w, z: Math.cos(t * 0.06) * l_d };
+                            t2 = { x: Math.cos(t * 1.1 + 2.0) * l_w, z: Math.sin(t * 0.07 + 1.0) * l_d };
+                            t3 = { x: Math.cos(t * 1.3 + 3.0) * l_w, z: Math.cos(t * 0.08 + 2.0) * l_d };
+                            t4 = { x: Math.sin(t * 0.05 + 4.0) * l_w, z: Math.sin(t * 1.0) * l_d };
+                            t5 = { x: Math.cos(t * 0.06 + 5.0) * l_w, z: Math.sin(t * 1.2 + 1.0) * l_d };
+                            t6 = { x: Math.sin(t * 0.07 + 6.0) * l_w, z: Math.cos(t * 1.1 + 2.0) * l_d };
+                            t7 = { x: Math.cos(t * 0.08 + 7.0) * l_w, z: Math.cos(t * 1.3 + 3.0) * l_d };
+                        } else {
+                            t0 = t1 = { x: -l_w, z: -l_d };
+                            t2 = t3 = { x:  l_w, z: -l_d };
+                            t4 = t5 = { x: -l_w, z:  l_d };
+                            t6 = t7 = { x:  l_w, z:  l_d };
+                        }
+
+                        posAttr.array[3] = t0.x; posAttr.array[4] = localY; posAttr.array[5] = t0.z;
+                        posAttr.array[9] = t1.x; posAttr.array[10] = localY; posAttr.array[11] = t1.z;
+                        posAttr.array[15] = t2.x; posAttr.array[16] = localY; posAttr.array[17] = t2.z;
+                        posAttr.array[21] = t3.x; posAttr.array[22] = localY; posAttr.array[23] = t3.z;
+                        posAttr.array[27] = t4.x; posAttr.array[28] = localY; posAttr.array[29] = t4.z;
+                        posAttr.array[33] = t5.x; posAttr.array[34] = localY; posAttr.array[35] = t5.z;
+                        posAttr.array[39] = t6.x; posAttr.array[40] = localY; posAttr.array[41] = t6.z;
+                        posAttr.array[45] = t7.x; posAttr.array[46] = localY; posAttr.array[47] = t7.z;
+                        posAttr.needsUpdate = true;
+
+                        if (currentTurntable && currentLaserMode > 0.5) {
+                            fLine.updateMatrixWorld(true);
+                            const p0 = new THREE.Vector3(t0.x, localY, t0.z).applyMatrix4(fLine.matrixWorld);
+                            const p1 = new THREE.Vector3(t1.x, localY, t1.z).applyMatrix4(fLine.matrixWorld);
+                            const p2 = new THREE.Vector3(t2.x, localY, t2.z).applyMatrix4(fLine.matrixWorld);
+                            const p3 = new THREE.Vector3(t3.x, localY, t3.z).applyMatrix4(fLine.matrixWorld);
+                            const p4 = new THREE.Vector3(t4.x, localY, t4.z).applyMatrix4(fLine.matrixWorld);
+                            const p5 = new THREE.Vector3(t5.x, localY, t5.z).applyMatrix4(fLine.matrixWorld);
+                            const p6 = new THREE.Vector3(t6.x, localY, t6.z).applyMatrix4(fLine.matrixWorld);
+                            const p7 = new THREE.Vector3(t7.x, localY, t7.z).applyMatrix4(fLine.matrixWorld);
+
+                            currentTurntable.traverse((child) => {
+                                if ((child.isPoints || child.userData.isShatterLines) && child.material.type === 'ShaderMaterial') {
+                                    child.material.uniforms.uLaserDots.value[0].copy(p0);
+                                    child.material.uniforms.uLaserDots.value[1].copy(p1);
+                                    child.material.uniforms.uLaserDots.value[2].copy(p2);
+                                    child.material.uniforms.uLaserDots.value[3].copy(p3);
+                                    child.material.uniforms.uLaserDots.value[4].copy(p4);
+                                    child.material.uniforms.uLaserDots.value[5].copy(p5);
+                                    child.material.uniforms.uLaserDots.value[6].copy(p6);
+                                    child.material.uniforms.uLaserDots.value[7].copy(p7);
+                                }
+                            });
+                        }
+                    }
+                    
+                    scanLaser.visible = (currentLaserMode < 0.5);
+                }
+            }
+
+            if (elapsedTime - lastHUDUpdate > 0.1) {
+                if (printFrameGroup && printFrameGroup.visible) {
+                    const fLine = printFrameGroup.children[0];
+                    const huds = fLine.userData.hudSprites;
+                    if (huds) {
+                        huds.forEach(hud => {
+                            const { ctx, canvas, texture, index } = hud;
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                            
+                            ctx.fillStyle = '#ffffff';
+                            ctx.font = 'bold 22px "Courier New", Courier, monospace';
+                            ctx.textAlign = 'left';
+                            ctx.shadowBlur = 8;
+                            ctx.shadowColor = '#ffffff';
+
+                            const modeText = currentLaserMode > 0.5 ? "MULTI-LASER" : "PLANE SCAN";
+
+                            if (index === 0) {
+                                ctx.fillStyle = '#00ff00';
+                                ctx.shadowColor = '#00ff00';
+                                ctx.fillText(`SYS.T: ${(elapsedTime).toFixed(2)}s`, 10, 30);
+                                ctx.fillText(`PRG: ${(Math.min(printProgress * 100, 100)).toFixed(1)}%`, 10, 60);
+                                ctx.strokeStyle = '#00ff00'; 
+                                ctx.lineWidth = 2;
+                                ctx.strokeRect(10, 75, 150, 10);
+                                ctx.fillRect(10, 75, 150 * Math.min(printProgress, 1), 10);
+                            } else if (index === 1) {
+                                ctx.fillText(`MODE: ${modeText}`, 10, 30);
+                                ctx.fillText(`PWR: ${(80 + Math.random()*20).toFixed(1)}W`, 10, 60);
+                                ctx.fillText(`FRM: ${Math.floor(Math.random()*9999)}`, 10, 90);
+                            } else if (index === 2) {
+                                ctx.fillText(`LAYER.Z: ${(printProgress * 1000).toFixed(0)}`, 10, 30);
+                                ctx.fillText(`DAT: 0x${Math.floor(Math.random()*16777215).toString(16).toUpperCase()}`, 10, 60);
+                                ctx.fillText(`ERR: 0.00%`, 10, 90);
+                            } else {
+                                ctx.fillText(`TARGET: LOCKED`, 10, 30);
+                                ctx.fillText(`MEM: ${(40 + Math.random()*10).toFixed(1)}%`, 10, 60);
+                                ctx.beginPath();
+                                for(let i=0; i<150; i+=10) {
+                                    ctx.lineTo(10 + i, 90 + Math.random()*20 - 10);
+                                }
+                                ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2; 
+                                ctx.stroke();
+                            }
+                            texture.needsUpdate = true;
+                        });
+                    }
+                }
+
+                lastHUDUpdate = elapsedTime;
+            }
+            
+            if (currentTurntable) {
+                currentTurntable.rotation.y += currentSpeed; 
+                
+                currentTurntable.traverse((child) => {
+                    if ((child.isPoints || child.userData.isShatterLines) && child.material.type === 'ShaderMaterial') {
+                        child.material.uniforms.uTime.value = elapsedTime;
+                        child.material.uniforms.uAudioLevel.value = currentAudioLevel;
+                        child.material.uniforms.uPrintProgress.value = Math.min(Math.max(printProgress, 0.0), 1.0);
+                    }
+                });
+            }
+            renderer.render(scene, camera);
+
+            previewRenderer.render(previewScene, previewCamera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
